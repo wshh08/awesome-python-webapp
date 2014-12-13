@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import db
+import time
 
 
 class Field(object):
@@ -16,7 +17,8 @@ class Field(object):
         self.updatable = kw.get('updatable', True)
         self.insertable = kw.get('insertable', True)
         self.ddl = kw.get('ddl', '')
-        self.count = Field._count + 1
+        self._order = Field._count  # 第一次漏掉了这句
+        self._count = Field._count + 1
 
     @property
     def default(self):
@@ -47,7 +49,7 @@ class IntegerField(Field):
             kw['default'] = 0
         if 'ddl' not in kw:
             kw['ddl'] = 'bigint'
-        super(IntegerField, self).__ini__(**kw)
+        super(IntegerField, self).__init__(**kw)
 
 
 class FloatField(Field):
@@ -104,7 +106,7 @@ def _gen_sql(table_name, mappings):
         nullable = f.nullable
         if f.primary_key:
             pk = f.name
-        sql.append(nullable and ' `%s` %s,' % (f.name, ddl) or ' `%s` %s not null,' % (f.name, dll))
+        sql.append(nullable and ' `%s` %s,' % (f.name, ddl) or ' `%s` %s not null,' % (f.name, ddl))
     sql.append(' primary key(`%s`)' % pk)
     sql.append(');')
     return '\n'.join(sql)
@@ -158,6 +160,48 @@ class ModelMetaclass(type):
 
 
 class Model(dict):
+    '''
+    Base class for ORM
+
+    >>> class User(Model):
+    ...     id = IntegerField(primary_key=True)
+    ...     name = StringField
+    ...     email = StringField(updatable=False)
+    ...     passwd = StringField(default=lambda: '******')
+    ...     last_modified = FloatField()
+    ...     def pre_insert(self):
+    ...         self.last_modified = time.time()
+    >>> u = User(id=10190, name='Wang Shaohua', email='wshh08@putixu.com')
+    >>> r = u.insert()
+    insert into `user` (`passwd`,`last_modified`,`id`,`email`) values (%s,%s,%s,%s)
+    None
+    MySQLCursor: (Nothing executed yet)
+    >>> u.email
+    'wshh08@putixu.com'
+    >>> u.passwd
+    '******'
+    >>> u.last_modified > (time.time() - 2)
+    True
+    >>> g = User.get(10190)
+    >>> g.email
+    u'wshh08@putixu.com'
+    >>> r = g.delete()
+    delete from `user` where `id`=%s
+    None
+    MySQLCursor: (Nothing executed yet)
+    >>> len(db.select('select * from user where id=10190'))
+    0
+    >>> import json
+    >>> print User().__sql__()
+    -- generating SQL for user:
+    create table `user` (
+     `passwd` varchar(225),
+     `last_modified` real,
+     `id` bigint not null,
+     `email` varchar(225),
+     primary key(`id`)
+    );
+    '''
     __metaclass__ = ModelMetaclass
 
     def __init__(self, **kw):
@@ -222,6 +266,7 @@ class Model(dict):
         self.pre_delete and self.pre_delete()
         pk = self.__primary_key__.name
         args = (getattr(self, pk), )
+       # print args
         db.update('delete from `%s` where `%s`=?' % (self.__table__, pk), *args)
         return self
 

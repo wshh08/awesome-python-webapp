@@ -24,7 +24,9 @@ class _LasyConnection(object):
             logging.info('open connection <%s>...' % hex(id(connection)))
             self.connection = connection
         # return self.connection.commit() 此错误导致_db_ctx.connection.cursor() NoneType
-            return self.connection.cursor()
+        #   return self.connection.cursor() 此处多缩进了一层导致if (0) 时 _db_ctx.connection.cursor() NoneType
+        # with transaction时在——Transaction中预先打开了一个connection，导致多缩进的cursor()无法执行
+        return self.connection.cursor()
 
     def commit(self):
         self.connection.commit()
@@ -168,15 +170,15 @@ class _TransactionCtx(object):
             _db_ctx.init()
             self.should_close_conn = True
         _db_ctx.transaction = _db_ctx.transaction + 1
-        logging.info('begin transaction...' if _db_ctx.transction == 1 else
-                     'join current transcation...')
+        logging.info('begin transaction...' if _db_ctx.transaction == 1 else
+                     'join current transaction...')
         return self
 
     def __exit__(self, exctype, excvalue, traceback):
         global _db_ctx
-        _db_ctx.transaction = _db_ctx.transcation - 1
+        _db_ctx.transaction = _db_ctx.transaction - 1
         try:
-            if _db_ctx.transction == 0:
+            if _db_ctx.transaction == 0:
                 if exctype is None:
                     self.commit()
                 else:
@@ -187,7 +189,7 @@ class _TransactionCtx(object):
 
     def commit(self):
         global _db_ctx
-        logging.info('commit transcation...')
+        logging.info('commit transaction...')
         try:
             _db_ctx.connection.commit()
             logging.info('commit ok.')
@@ -199,12 +201,36 @@ class _TransactionCtx(object):
 
     def rollback(self):
         global _db_ctx
-        logging.warning('rollback trasction...')
+        logging.warning('rollback transaction...')
         _db_ctx.connection.rollback()
         logging.info('rollback ok.')
 
 
 def transaction():
+    '''
+    Create a transaction object so can use with statement:
+
+    with transaction():
+        pass
+
+    >>> def update_profile(id, name, rollback):
+    ...     u = dict(id=id, name=name, email='%s@test.org' % name, passwd=name, last_modified=time.time())
+    ...     insert('user', **u)
+    ...     r = update('update user set passwd=? where id=?', name.upper(), id)
+    ...     if rollback:
+    ...         raise StandardError('will cause rollback...')
+    >>> with transaction():
+    ...     update_profile(900301, 'Python', False)
+    >>> select_one('select * from user where id=?', 900301).name
+    u'Python'
+    >>> with transaction():
+    ...     update_profile(900302, 'Ruby', True)
+    Traceback (most recent call last):
+        ...
+    StandardError: will cause rollback...
+    >>> select('select * from user where id=?', 900302)
+    []
+    '''
     return _TransactionCtx()
 
 
@@ -266,7 +292,7 @@ def _update(sql, *args):
     logging.info('SQL: %s, ARGS: %s' % (sql, args))
     try:
         cursor = _db_ctx.connection.cursor()  # 此处_db_ctx.connection.cursor is None.
-        print _db_ctx.connection.cursor()
+        # print _db_ctx.connection.cursor()
         print cursor
         cursor.execute(sql, args)
         r = cursor.rowcount
@@ -286,6 +312,27 @@ def insert(table, **kw):
 
 
 def update(sql, *args):
+    r'''
+    Execute update SQL
+
+    >>> u1 = dict(id=1000, name='Wang Shaohua', email='wshh08@putixu.com', passwd='123456', last_modified=time.time())
+    >>> insert('user', **u1)
+    1
+    >>> u2 = select_one('select * from user where id=?', 1000)
+    >>> u2.email
+    u'wshh08@putixu.com'
+    >>> u2.passwd
+    u'123456'
+    >>> update('update user set email=?, passwd=? where id=?', 'wshh08@putixu.com', '654321', 1000)
+    1
+    >>> u3 = select_one('select * from user where id=?', 1000)
+    >>> u3.email
+    u'wshh08@putixu.com'
+    >>> u3.passwd
+    u'654321'
+    >>> update('update user set passwd=? where id=?', '***', '123\' or id=\'456')
+    0
+    '''
     return _update(sql, *args)
 
 

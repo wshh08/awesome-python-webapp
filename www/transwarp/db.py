@@ -88,7 +88,7 @@ class Dict(dict):
 def next_id(t=None):
     if t is None:
         t = time.time()
-    return '%015d%s000' % (int(t * 1000), uuid.uuid4.hex)
+    return '%015d%s000' % (int(t * 1000), uuid.uuid4().hex)
 
 
 def _profiling(start, sql=''):
@@ -288,12 +288,12 @@ def _update(sql, *args):
     global _db_ctx
     cursor = None
     sql = sql.replace('?', '%s')
-    print sql
+    # print sql
     logging.info('SQL: %s, ARGS: %s' % (sql, args))
     try:
         cursor = _db_ctx.connection.cursor()  # 此处_db_ctx.connection.cursor is None.
         # print _db_ctx.connection.cursor()
-        print cursor
+        # print cursor
         cursor.execute(sql, args)
         r = cursor.rowcount
         if _db_ctx.transaction == 0:

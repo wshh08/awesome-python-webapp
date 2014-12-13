@@ -14,6 +14,59 @@ import functools
 import uuid
 
 
+class _LasyConnection(object):
+    def __init__(self):
+        self.connection = None
+
+    def cursor(self):
+        if self.connection is None:
+            connection = engine.connect()
+            logging.info('open connection <%s>...' % hex(id(connection)))
+            self.connection = connection
+        # return self.connection.commit() 此错误导致_db_ctx.connection.cursor() NoneType
+            return self.connection.cursor()
+
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def cleanup(self):
+        if self.connection:
+            connection = self.connection
+            self.connection = None
+            logging.info('Close connection <%s>...' % hex(id(connection)))
+            connection.close()
+
+
+class _DbCtx(threading.local):
+    '''
+    Thread local object that holds connection info.
+    '''
+    def __init__(self):
+        self.connection = None
+        self.transaction = 0
+
+    def is_init(self):
+        return self.connection is not None
+
+    def init(self):
+        logging.info('open lasy connection...')
+        self.connection = _LasyConnection()
+        self.transaction = 0
+
+    def cleanup(self):
+        self.connection.cleanup()
+        self.connection = None
+
+    def cursor(self):
+        return self.connection.cursor()
+
+_db_ctx = _DbCtx()
+engine = None
+
+
 class Dict(dict):
     def __init__(self, names=(), values=(), **kw):
         super(Dict, self).__init__(**kw)
@@ -53,14 +106,14 @@ class _Engine(object):
 
 
 def create_engine(user, password, database, host='127.0.0.1', port=3306, **kw):
-    import mysql.connetor
+    import mysql.connector
     global engine
     if engine is not None:
         raise DBError('Engine is already initialized.')
     params = dict(user=user, password=password, database=database,
                   host=host, port=port)
-    defaults = dict(user_unicode=True, charset='utf8',
-                    collation='utf8_general-ci', autocommit=False)
+    defaults = dict(use_unicode=True, charset='utf8',
+                    collation='utf8_general_ci', autocommit=False)
     for k, v in defaults.iteritems():
         params[k] = kw.pop(k, v)
     params.update(kw)
@@ -70,15 +123,15 @@ def create_engine(user, password, database, host='127.0.0.1', port=3306, **kw):
     logging.info('Init mysql engine <%s> ok.' % hex(id(engine)))
 
 
-def _ConnectionCtx(object):
-    '''
-    _ConnectionCtx object that can open and close connection context.
-    '''
+# 把class写成了def，报错：需要一个参数（self）
+class _ConnectionCtx(object):
     def __enter__(self):
         global _db_ctx
         self.should_cleanup = False
         if not _db_ctx.is_init():
+            # print _db_ctx.connection.cursor
             _db_ctx.init()
+            # print _db_ctx.connection.cursor
             self.should_cleanup = True
         return self
 
@@ -209,10 +262,13 @@ def _update(sql, *args):
     global _db_ctx
     cursor = None
     sql = sql.replace('?', '%s')
+    print sql
     logging.info('SQL: %s, ARGS: %s' % (sql, args))
     try:
-        cursor = _db_ctx.connection.cursor()
-        cursor.excute(sql, args)
+        cursor = _db_ctx.connection.cursor()  # 此处_db_ctx.connection.cursor is None.
+        print _db_ctx.connection.cursor()
+        print cursor
+        cursor.execute(sql, args)
         r = cursor.rowcount
         if _db_ctx.transaction == 0:
             logging.info('auto commit')
@@ -225,38 +281,12 @@ def _update(sql, *args):
 
 def insert(table, **kw):
     cols, args = zip(*kw.iteritems())
-    sql = 'insert into '%s' (%s) values (%s)' % (table, ','.join(['`%s`' % col for col in cols]), ','.join(['?' for i in range(len(cols))]))
+    sql = 'insert into `%s` (%s) values (%s)' % (table, ','.join(['`%s`' % col for col in cols]), ','.join(['?' for i in range(len(cols))]))
     return _update(sql, *args)
 
 
 def update(sql, *args):
     return _update(sql, *args)
-
-
-class _DbCtx(threading.local):
-    '''
-    Thread local object that holds connection info.
-    '''
-    def __init__(self):
-        self.connection = None
-        self.transaction = 0
-
-    def is_init(self):
-        return not self.connection is None
-
-    def init(self):
-        self.connection = _LasyConnection()
-        self.transaction = 0
-
-    def cleanup(self):
-        self.connection.cleanup()
-        self.connection = None
-
-    def cursor(self):
-        return self.connection.cursor()
-
-_db_ctx = _DbCtx()
-engine = None
 
 
 class DBError(Exception):
@@ -267,34 +297,9 @@ class MultiColumnsError(DBError):
     pass
 
 
-class _LasyConnection(object):
-    def __init__(self):
-        self.connection = None
-
-    def cursor(self):
-        if self.connection is None:
-            connection = engine.connect()
-            logging.info('open connection <%s>...' % hex(id(connection)))
-            self.connection = connection
-        return self.connection.commit()
-
-    def commit(self):
-        self.connection.commit()
-
-    def rollback(self):
-        self.connection.rollback()
-
-    def cleanup(self):
-        if self.connection:
-            connection = self.connection
-            self.connection = None
-            logging.info('Close connection <%s>...' % hex(id(connection)))
-            connection.close()
-
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
-    create_engine('www-data', 'www-data', 'test')
+    create_engine('root', '2910', 'test')
     update('drop table if exists user')
     update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
     import doctest

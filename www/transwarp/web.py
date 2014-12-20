@@ -18,6 +18,9 @@ import cgi
 import logging
 import functools
 import types
+import sys
+import StringIO
+import traceback
 
 
 ctx = threading.local()
@@ -388,7 +391,8 @@ def _static_file_generator(fpath):
             block = f.read(BLOCK_SIZE)
 
 
-def StaticFileRoute(object):
+# def StaticFileRoute(object): 又把class写成def了，该死。
+class StaticFileRoute(object):
     def __init__(self):
         self.method = 'GET'
         self.is_static = False
@@ -522,7 +526,7 @@ class Request(object):
                 for c in cookie_str.split(';'):
                     pos = c.find('=')
                     if pos > 0:
-                        cookies[c[:pos].strip()] = _unquote(c[pos+1])
+                        cookies[c[:pos].strip()] = _unquote(c[pos + 1])
             self._cookies = cookies
         return self._cookies
 
@@ -685,7 +689,8 @@ def _default_error_handler(e, start_response, is_debug):
         start_response(e.status, headers)
         return ('<html><body><h1>%s</h1></body></html>' % e.status)
     logging.exception('Exception:')
-    start_response('500 Internal Server Error', [('Content-Type', 'text/html'), _HEADER_X_POWERD_BY])
+    start_response('500 Internal Server Error', [('Content-Type', 'text/html'),
+                                                 _HEADER_X_POWERED_BY])
     if is_debug:
         return _debug()
     return ('<html><body><h1>500 Internal Server Error</h1><h3>%s</h3></body></html>' % str(e))
@@ -748,7 +753,7 @@ def _load_module(module_name):
     if last_dot == (-1):
         return __import__(module_name, globals(), locals())
     from_module = module_name[:last_dot]
-    import_module = module_name[last_dot+1:]
+    import_module = module_name[last_dot + 1:]
     m = __import__(from_module, globals(), locals(), [import_module])
     return getattr(m, import_module)
 
@@ -768,7 +773,7 @@ class WSGIApplication(object):
         self._post_dynamic = []
 
     def _check_not_running(self):
-        if self._running():
+        if self._running:
             raise RuntimeError('Cannot modify WSGIApplication when running.')
 
     @property
@@ -813,7 +818,7 @@ class WSGIApplication(object):
     def run(self, port=9000, host='127.0.0.1'):
         from wsgiref.simple_server import make_server
         logging.info('application (%s) will start at %s:%s...' % (self._document_root, host, port))
-        server = make_server(host, port, self.get_wsgi_application(debu=True))
+        server = make_server(host, port, self.get_wsgi_application(debug=True))
         server.serve_forever()
 
     # 向服务器&run()返回WSGI处理函数（产品模式&开发模式）：
@@ -825,73 +830,73 @@ class WSGIApplication(object):
 
         _application = Dict(document_root=self._document_root)
 
-    def fn_route():
-        request_method = ctx.request.request_method
-        path_info = ctx.request.path_info
-        if request_method == 'GET':
-            fn = self._get_static.get(path_info, None)
-            if fn:
-                return fn()
-            for fn in self._get_dynamic:
-                args = fn.match(path_info)
-                if args:
-                    return fn(*args)
-            raise notfound()
-        if request_method == 'POST':
-            fn = self._post_static.get(path_info, None)
-            if fn:
-                return fn()
-            for fn in self._post_dynamic:
-                args = fn.match(path_info)
-                if args:
-                    return fn(*args)
-            raise notfound()
-        raise badrequest()
+        def fn_route():
+            request_method = ctx.request.request_method
+            path_info = ctx.request.path_info
+            if request_method == 'GET':
+                fn = self._get_static.get(path_info, None)
+                if fn:
+                    return fn()
+                for fn in self._get_dynamic:
+                    args = fn.match(path_info)
+                    if args:
+                        return fn(*args)
+                raise notfound()
+            if request_method == 'POST':
+                fn = self._post_static.get(path_info, None)
+                if fn:
+                    return fn()
+                for fn in self._post_dynamic:
+                    args = fn.match(path_info)
+                    if args:
+                        return fn(*args)
+                raise notfound()
+            raise badrequest()
 
-    fn_exec = _build_interceptor_chain(fn_route, *self._interceptors)
+        fn_exec = _build_interceptor_chain(fn_route, *self._interceptors)
 
-    def wsgi(env, start_response):
-        ctx.application = _application
-        ctx.request = Request(env)
-        response = ctx.response = Response()
-        try:
-            r = fn_exec()
-            if isinstance(r, Template):
-                r = self._template_engine(r.template_name, r.model)
-            if isinstance(r, unicode):
-                r = r.encode('utf-8')
-            if r is None:
-                r = []
-            start_response(response.status, response.headers)
-            return r
-        except ReirectErro, e:
-            response.set_header('Location', e.location)
-            start_response(e.status, response.headers)
-            return []
-        except HttpError, e:
-            start_response(e.status, response.headers)
-            return ['<html><body><h1>', e.status, '</h1></body></html>']
-        except Exception, e:
-            logging.exception(e)
-            if not debug:
+        def wsgi(env, start_response):
+            ctx.application = _application
+            ctx.request = Request(env)
+            response = ctx.response = Response()
+            try:
+                r = fn_exec()
+                if isinstance(r, Template):
+                    r = self._template_engine(r.template_name, r.model)
+                if isinstance(r, unicode):
+                    r = r.encode('utf-8')
+                if r is None:
+                    r = []
+                start_response(response.status, response.headers)
+                return r
+            except RedirectError, e:
+                response.set_header('Location', e.location)
+                start_response(e.status, response.headers)
+                return []
+            except HttpError, e:
+                start_response(e.status, response.headers)
+                return ['<html><body><h1>', e.status, '</h1></body></html>']
+            except Exception, e:
+                logging.exception(e)
+                if not debug:
+                    start_response('500 Internal Server Error', [])
+                    return ['<html><body><h1>500 Internal Server Error</h1></body></html>']
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                fp = StringIO()
+                traceback.print_exception(exc_type, exc_value, exc_traceback, file=fp)
+                stacks = fp.getvalue()
+                fp.close()
                 start_response('500 Internal Server Error', [])
-                return ['<html><body><h1>500 Internal Server Error</h1></body></html>']
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            fp = StringIO()
-            traceback.print_exception(exc_type, exc_value, exc_traceback, file=fp)
-            stacks = fp.getvalue()
-            fp.close()
-            start_response('500 Internal Server Error', [])
-            return [
-                r'''<html><body><h1>500 Internal Server Error</h1><div style="font-family:Monaco, Menlo, Consolas, 'Courier New', monospace;"><pre>''',
-                stacks.replace('<', '&lt;').replace('>', '&gt;'),
-                '</pre></div></body></html>']
-        finally:
-            del ctx.application
-            del ctx.request
-            del ctx.response
+                return [
+                    r'''<html><body><h1>500 Internal Server Error</h1><div style="font-family:Monaco, Menlo, Consolas, 'Courier New', monospace;"><pre>''',
+                    stacks.replace('<', '&lt;').replace('>', '&gt;'),
+                    '</pre></div></body></html>']
+            finally:
+                del ctx.application
+                del ctx.request
+                del ctx.response
 
-    return wsgi
+        return wsgi
 
 
 if __name__ == '__main__':

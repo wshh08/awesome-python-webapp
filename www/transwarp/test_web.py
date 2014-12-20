@@ -1,11 +1,6 @@
-from web import get
+import web
 
 
-@get('/test/:id')
-def test():
-    return 'OK'
-
-
-test()
-print test.__web_route__
-print test.__web_method__
+# static = web.StaticFileRoute('FUCK')
+wsgi = web.WSGIApplication()
+wsgi.run()

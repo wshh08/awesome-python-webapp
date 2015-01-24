@@ -266,7 +266,7 @@ class Model(dict):
         self.pre_delete and self.pre_delete()
         pk = self.__primary_key__.name
         args = (getattr(self, pk), )
-       # print args
+        # print args
         db.update('delete from `%s` where `%s`=?' % (self.__table__, pk), *args)
         return self
 

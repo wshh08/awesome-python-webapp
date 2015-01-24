@@ -22,11 +22,11 @@ function _ajax(method, url, data, callback) {
         url: url,
         data: data,
         dataType: 'json'
-    }).done(function(r) {
-        if (r && r.error) {
-            return callback && callback(r);
+    }).done(function(responsedata) {
+        if (responsedata && responsedata.error) {
+            return callback && callback(responsedata);
         }
-        return callback && callback(null, r);
+        return callback && callback(null, responsedata);
     }).fail(function(jqXHR, textStatus) {
         return callback && callback({error: 'HTTP ' + jqXHR.status, message: 'Network error (HTTP ' + jqXHR.status + ')'});
     });

@@ -463,6 +463,19 @@ class Request(object):
         return [r]
 
     def input(self, **kw):
+        '''
+        >>> from StringIO import StringIO
+        >>> r = Request({'REQUEST_METHOD':'POST', 'wsgi.input': StringIO('a=1&b=M%20M&c=ABC&c=XYZ&e=')})
+        >>> i = r.input(x=2008, a=100)
+        >>> i.a
+        u'100'
+        >>> i.b
+        u'M M'
+        >>> i.c
+        u'ABC'
+        >>> i.x
+        2008
+        '''
         copy = Dict(**kw)
         raw = self._get_raw_input()
         for k, v in raw.iteritems():
@@ -522,11 +535,16 @@ class Request(object):
         if not hasattr(self, '_cookies'):
             cookies = {}
             cookie_str = self._environ.get('HTTP_COOKIE')
+            # print ("cookie_str from HTTP_COOKIE is %s" % cookie_str)
             if cookie_str:
                 for c in cookie_str.split(';'):
+                    # print ("c is %s" % c)
                     pos = c.find('=')
+                    # print ("pos is %d" % pos)
                     if pos > 0:
-                        cookies[c[:pos].strip()] = _unquote(c[pos + 1])
+                        # print ("unquoted cookie from %s is %s" % (c[pos + 1:], urllib.unquote(c[pos + 1:])))
+                        cookies[c[:pos].strip()] = _unquote(c[pos + 1:])  # 漏掉了最后的':'
+                        # print ("cookies is %s" % cookies)
             self._cookies = cookies
         return self._cookies
 
@@ -614,6 +632,7 @@ class Response(object):
         if http_only:
             L.append('HttpOnly')
         self._cookies[name] = ';'.join(L)
+        # print ("self._cookie[%s] is %s" % (name, L))
 
     def unset_cookie(self, name):
         if hasattr(self, '_cookies'):
@@ -793,6 +812,8 @@ class WSGIApplication(object):
             fn = getattr(m, name)
             if callable(fn) and hasattr(fn, '__web_route__') and hasattr(fn, '__web_method__'):
                 self.add_url(fn)
+            elif callable(fn) and hasattr(fn, '__interceptor__'):
+                self.add_interceptor(fn)
 
     def add_url(self, func):
         self._check_not_running()

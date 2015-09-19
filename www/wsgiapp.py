@@ -40,3 +40,10 @@ wsgi.add_module(urls)
 
 if __name__ == '__main__':
     wsgi.run(9000)
+else:
+    # if use "python wsgiapp.py" to start the app, run the "wsgiref.simple_server"
+    # if gunicorn is used, transform the vari "application" to gunicorn to start the service, 
+    # via "command     = /usr/bin/gunicorn --bind 127.0.0.1:9000 --workers 1 --worker-class gevent ##wsgiapp:application##"
+    # in the configure file of gunicorn: awesome.conf in /etc/supervisor/conf.d/
+    application = wsgi.get_wsgi_application()
+

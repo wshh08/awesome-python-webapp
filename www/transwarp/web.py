@@ -879,7 +879,7 @@ class WSGIApplication(object):
         def wsgi(env, start_response):
             ctx.application = _application
             ctx.request = Request(env)
-            response = ctx.response = Response()
+            response = ctx.response = Response()  #response & ctx.response are all pointed to the same memmory address: Response().
             try:
                 r = fn_exec()
                 if isinstance(r, Template):
